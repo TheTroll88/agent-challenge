@@ -14,7 +14,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   g++ \
   git \
   ca-certificates \
+  curl \
+  unzip \
   && rm -rf /var/lib/apt/lists/*
+
+# Install bun (required by ElizaOS CLI for TypeScript compilation)
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:$PATH"
 
 # Disable telemetry
 ENV ELIZAOS_TELEMETRY_DISABLED=true

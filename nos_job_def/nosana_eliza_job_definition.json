@@ -3,7 +3,7 @@
     {
       "id": "solscope-agent",
       "args": {
-        "image": "thetroll88/solscope:latest",
+        "image": "thetroll888/solscope:latest",
         "expose": 3000,
         "env": {
           "OPENAI_API_KEY": "nosana",
