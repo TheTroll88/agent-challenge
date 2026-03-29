@@ -7,7 +7,7 @@
  * Run: npx tsx __tests__/solscope.test.ts
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 
 // Re-implement the pure helpers here for isolated testing
 // (they're module-private in index.ts, so we test their logic directly)

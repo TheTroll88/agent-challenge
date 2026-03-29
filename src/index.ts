@@ -1,12 +1,13 @@
 /**
  * SolScope — Solana Blockchain Intelligence Plugin for ElizaOS
  *
- * Custom plugin providing 5 real-time on-chain data actions:
+ * Custom plugin providing 6 real-time on-chain data actions:
  * - CHECK_WALLET_BALANCE: SOL + token holdings for any address
  * - TOKEN_PRICE: Live prices via Jupiter aggregator
  * - TRANSACTION_LOOKUP: Decode any tx by signature
  * - NETWORK_HEALTH: TPS, epoch, validator stats
  * - TOP_TOKENS: Trending pairs by 24h volume via DexScreener
+ * - NOSANA_STATUS: Self-monitoring of compute infrastructure
  *
  * All data fetched live from Solana mainnet — no caching, no stale feeds.
  * Deployed on Nosana decentralized GPU network.
