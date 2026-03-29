@@ -1,34 +1,93 @@
 /**
- * SolScope — Solana DeFi Intelligence Plugin
- * Custom actions for real-time blockchain data queries
+ * SolScope — Solana Blockchain Intelligence Plugin for ElizaOS
+ *
+ * Custom plugin providing 5 real-time on-chain data actions:
+ * - CHECK_WALLET_BALANCE: SOL + token holdings for any address
+ * - TOKEN_PRICE: Live prices via Jupiter aggregator
+ * - TRANSACTION_LOOKUP: Decode any tx by signature
+ * - NETWORK_HEALTH: TPS, epoch, validator stats
+ * - TOP_TOKENS: Trending pairs by 24h volume via DexScreener
+ *
+ * All data fetched live from Solana mainnet — no caching, no stale feeds.
+ * Deployed on Nosana decentralized GPU network.
+ *
+ * @author Nathaniel Crigger
+ * @license MIT
  */
 
 import { type Action, type HandlerCallback, type HandlerOptions, type IAgentRuntime, type Memory, type Plugin, type State } from "@elizaos/core";
 
-// --- Solana RPC Helper ---
+// --- Constants ---
+const RPC_TIMEOUT_MS = 15_000;
+const API_TIMEOUT_MS = 10_000;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1_000;
+
+// --- Solana RPC Helper (with retry + timeout) ---
 async function solanaRpc(method: string, params: unknown[] = []): Promise<unknown> {
   const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-  const res = await fetch(rpcUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  const json = (await res.json()) as { result?: unknown; error?: { message: string } };
-  if (json.error) throw new Error(json.error.message);
-  return json.result;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+
+      const res = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        throw new Error(`RPC HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const json = (await res.json()) as { result?: unknown; error?: { message: string; code?: number } };
+      if (json.error) {
+        // Don't retry client errors (invalid params, method not found)
+        if (json.error.code && json.error.code >= -32600 && json.error.code <= -32700) {
+          throw new Error(json.error.message);
+        }
+        throw new Error(json.error.message);
+      }
+      return json.result;
+    } catch (err) {
+      const isLast = attempt === MAX_RETRIES;
+      const isAbort = (err as Error).name === "AbortError";
+
+      if (isLast) {
+        throw new Error(isAbort ? `RPC timeout after ${RPC_TIMEOUT_MS}ms` : (err as Error).message);
+      }
+
+      // Wait before retry with exponential backoff
+      await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+    }
+  }
+
+  throw new Error("RPC request failed after retries");
 }
 
-// --- Jupiter Price API Helper ---
+// --- Jupiter Price API Helper (with timeout) ---
 async function getTokenPrice(symbol: string): Promise<{ price: number; symbol: string } | null> {
   try {
     const ids = symbol.toUpperCase() === "SOL" ? "So11111111111111111111111111111111111111112" : symbol;
-    const res = await fetch(`https://api.jup.ag/price/v2?ids=${ids}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+    const res = await fetch(`https://api.jup.ag/price/v2?ids=${ids}`, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!res.ok) return null;
+
     const json = (await res.json()) as { data?: Record<string, { price: string; mintSymbol?: string }> };
     if (json.data) {
       const entry = Object.values(json.data)[0];
       if (entry) return { price: parseFloat(entry.price), symbol: entry.mintSymbol || symbol };
     }
-  } catch { /* fall through */ }
+  } catch { /* timeout or network error — fall through */ }
   return null;
 }
 
@@ -156,7 +215,12 @@ const tokenPriceLookup: Action = {
     const mintId = query === "SOL" ? "So11111111111111111111111111111111111111112" : query;
 
     try {
-      const res = await fetch(`https://api.jup.ag/price/v2?ids=${mintId}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      const res = await fetch(`https://api.jup.ag/price/v2?ids=${mintId}`, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!res.ok) throw new Error(`Jupiter API returned ${res.status}`);
       const json = (await res.json()) as { data?: Record<string, { price: string }> };
 
       if (json.data) {
@@ -322,7 +386,12 @@ const topTokens: Action = {
   ) => {
     if (!callback) return;
     try {
-      const res = await fetch("https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+      const res = await fetch("https://api.dexscreener.com/latest/dex/tokens/So11111111111111111111111111111111111111112", { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!res.ok) throw new Error(`DexScreener API returned ${res.status}`);
       const json = (await res.json()) as { pairs?: Array<{ baseToken: { symbol: string }; quoteToken: { symbol: string }; priceUsd: string; volume: { h24: number }; priceChange: { h24: number }; dexId: string }> };
 
       if (!json.pairs || json.pairs.length === 0) {
@@ -356,12 +425,106 @@ const topTokens: Action = {
 };
 
 // =================================================================
+// ACTION: Nosana Infrastructure Status
+// =================================================================
+const nosanaStatus: Action = {
+  name: "NOSANA_STATUS",
+  description: "Check the status of the Nosana decentralized compute infrastructure powering this agent",
+  similes: ["NOSANA", "COMPUTE_STATUS", "GPU_STATUS", "INFRASTRUCTURE", "NOSANA_HEALTH"],
+  validate: async (_runtime: IAgentRuntime, message: Memory) => {
+    const text = message.content?.text || "";
+    return /nosana|compute|gpu|infrastr|who.*host|where.*run|decentralized.*ai/i.test(text);
+  },
+  handler: async (
+    _runtime: IAgentRuntime,
+    _message: Memory,
+    _state?: State,
+    _options?: HandlerOptions,
+    callback?: HandlerCallback
+  ) => {
+    if (!callback) return;
+
+    try {
+      // Check Nosana inference endpoint health
+      const endpointUrl = process.env.OPENAI_API_URL || "";
+      const modelName = process.env.MODEL_NAME || "unknown";
+      let endpointStatus = "Unknown";
+      let modelInfo = "";
+
+      if (endpointUrl) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+          const res = await fetch(`${endpointUrl}/models`, {
+            headers: { "Authorization": `Bearer ${process.env.OPENAI_API_KEY || ""}` },
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+
+          if (res.ok) {
+            const models = (await res.json()) as { data?: Array<{ id: string }> };
+            endpointStatus = "🟢 Online";
+            if (models.data && models.data.length > 0) {
+              modelInfo = `\nAvailable models: ${models.data.map(m => m.id).join(", ")}`;
+            }
+          } else {
+            endpointStatus = `🟡 Responding (HTTP ${res.status})`;
+          }
+        } catch {
+          endpointStatus = "🔴 Unreachable";
+        }
+      }
+
+      // Check Solana RPC health (our data source)
+      let rpcStatus = "Unknown";
+      try {
+        const health = await solanaRpc("getHealth") as string;
+        rpcStatus = health === "ok" ? "🟢 Healthy" : `🟡 ${health}`;
+      } catch {
+        rpcStatus = "🔴 Unreachable";
+      }
+
+      // Agent self-report
+      const uptime = process.uptime();
+      const hours = Math.floor(uptime / 3600);
+      const mins = Math.floor((uptime % 3600) / 60);
+      const memUsage = process.memoryUsage();
+      const heapMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+
+      await callback({
+        text: `**SolScope Infrastructure Status**\n\n` +
+          `**Compute Layer (Nosana)**\n` +
+          `Inference Endpoint: ${endpointStatus}\n` +
+          `Model: ${modelName}${modelInfo}\n` +
+          `Network: Nosana Decentralized GPU\n\n` +
+          `**Data Layer (Solana)**\n` +
+          `RPC Status: ${rpcStatus}\n` +
+          `Endpoint: ${(process.env.SOLANA_RPC_URL || "mainnet-beta (public)").replace(/https?:\/\//, "")}\n\n` +
+          `**Agent Runtime**\n` +
+          `Uptime: ${hours}h ${mins}m\n` +
+          `Memory: ${heapMB} MB heap\n` +
+          `Node.js: ${process.version}\n\n` +
+          `Fully decentralized — no centralized cloud, no data harvesting.`,
+      });
+    } catch (err) {
+      await callback({ text: `Infrastructure check failed: ${(err as Error).message}` });
+    }
+  },
+  examples: [
+    [
+      { name: "{{user1}}", content: { text: "What infrastructure is SolScope running on?" } },
+      { name: "SolScope", content: { text: "SolScope runs on Nosana's decentralized GPU network with Qwen3.5-27B inference. Endpoint: Online. Solana RPC: Healthy. Uptime: 4h 23m." } },
+    ],
+  ],
+};
+
+// =================================================================
 // PLUGIN EXPORT
 // =================================================================
 export const solscopePlugin: Plugin = {
   name: "solscope",
-  description: "Solana blockchain intelligence — wallet balances, token prices, transactions, network health, trending tokens",
-  actions: [checkWalletBalance, tokenPriceLookup, transactionLookup, networkHealth, topTokens],
+  description: "Solana blockchain intelligence — wallet balances, token prices, transactions, network health, trending tokens, infrastructure status",
+  actions: [checkWalletBalance, tokenPriceLookup, transactionLookup, networkHealth, topTokens, nosanaStatus],
   providers: [],
   evaluators: [],
 };

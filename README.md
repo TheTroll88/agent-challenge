@@ -17,6 +17,7 @@ SolScope is a Solana blockchain intelligence agent built on [ElizaOS v2](https:/
 | 🔍 **Transaction Details** | Decode any transaction: signer, fee, status, balance changes, slot |
 | 📊 **Network Health** | Live TPS, epoch progress, validator count, delinquency status |
 | 🔥 **Trending Tokens** | Top Solana pairs by 24h volume via DexScreener |
+| 🖥️ **Nosana Status** | Live infrastructure health: compute endpoint, RPC, uptime, memory |
 
 Every query hits the actual blockchain. No stale data.
 
@@ -34,8 +35,10 @@ Every query hits the actual blockchain. No stale data.
                      │  (Nosana GPU)    │────▶ DexScreener API
                      └──────────────────┘
                            │
-                     Deployed on Nosana
-                     Decentralized GPU
+                     ┌─────┴─────────┐
+                     │  Nosana GPU   │
+                     │  Network      │──── Self-monitoring
+                     └───────────────┘     (health checks)
 ```
 
 ### Tech Stack
@@ -49,7 +52,7 @@ Every query hits the actual blockchain. No stale data.
 
 ## Custom Plugin: `solscope`
 
-The core of SolScope is a custom ElizaOS plugin (`src/index.ts`) that provides 5 blockchain-native actions:
+The core of SolScope is a custom ElizaOS plugin (`src/index.ts`) that provides 6 blockchain-native actions:
 
 | Action | Trigger Keywords | Data Source |
 |---|---|---|
@@ -58,6 +61,7 @@ The core of SolScope is a custom ElizaOS plugin (`src/index.ts`) that provides 5
 | `TRANSACTION_LOOKUP` | transaction, tx, signature | Solana RPC (`getTransaction`) |
 | `NETWORK_HEALTH` | network, tps, health, epoch, validators | Solana RPC (`getRecentPerformanceSamples`, `getEpochInfo`, `getVoteAccounts`) |
 | `TOP_TOKENS` | trending, top, popular, volume | DexScreener API |
+| `NOSANA_STATUS` | nosana, compute, gpu, infrastructure | Nosana endpoint + Solana RPC (`getHealth`) |
 
 Each action:
 - Validates user intent via regex pattern matching
@@ -89,6 +93,13 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) to interact with SolScope.
 
+### Run Tests
+```bash
+pnpm test
+```
+
+26 unit tests covering utility functions, address extraction, and action validation patterns.
+
 ---
 
 ## Deploy to Nosana
@@ -114,14 +125,19 @@ nosana-agent-challenge/
 ├── characters/
 │   └── agent.character.json   # SolScope personality & config
 ├── src/
-│   └── index.ts               # Custom solscope plugin (5 actions)
+│   └── index.ts               # Custom solscope plugin (6 actions)
+├── __tests__/
+│   └── solscope.test.ts       # Unit tests (26 tests)
 ├── assets/
 │   └── index.html             # Web UI frontend
 ├── nos_job_def/
 │   └── nosana_eliza_job_definition.json  # Nosana deployment config
-├── Dockerfile                 # Container config
+├── Dockerfile                 # Production container (multi-stage, healthcheck)
+├── .dockerignore              # Lean image builds
+├── .env.example               # Environment template
+├── vitest.config.ts           # Test configuration
 ├── package.json               # Dependencies & scripts
-└── .env.example               # Environment template
+└── pnpm-lock.yaml             # Reproducible installs
 ```
 
 ---
@@ -129,6 +145,16 @@ nosana-agent-challenge/
 ## Why SolScope?
 
 Most AI agents are generic chatbots with a personality file. SolScope has **real utility** — it provides the same on-chain data that traders pay $50-200/month for through tools like Birdeye, Step Finance, or Solscan Pro. Except it runs on decentralized infrastructure, responds in natural language, and costs nothing.
+
+### Nosana Integration Depth
+
+SolScope doesn't just deploy on Nosana — it integrates Nosana into its intelligence:
+
+- **Self-monitoring**: The `NOSANA_STATUS` action reports real-time health of the Nosana compute endpoint, model availability, Solana RPC status, and agent runtime metrics
+- **Docker HEALTHCHECK**: Container-native health monitoring for Nosana's orchestration layer
+- **Resilient networking**: All API calls use retry logic with exponential backoff and timeouts — essential for decentralized infrastructure where nodes may rotate
+- **Production Dockerfile**: Multi-stage build with proper layer caching, security hardening, and lean image size
+- **Zero centralized dependencies**: No AWS, no GCP — fully decentralized compute via Nosana GPU network
 
 The Bloomberg Terminal of Solana — free, open, and decentralized.
 

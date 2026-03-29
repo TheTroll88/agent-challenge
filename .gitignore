@@ -14,7 +14,7 @@ node_modules
 /coverage
 
 # next.js
-.next
+/.next/
 /out/
 
 # production
@@ -30,7 +30,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env
 .build-state.md
 
@@ -42,12 +42,19 @@ yarn-error.log*
 next-env.d.ts
 
 memory.*
-.mastra
+.mastra/
 
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# lock files (keep pnpm-lock.yaml for reproducible builds)
+package-lock.json
+yarn.lock
+bun.lockb
 
-# dependencies
-/node_modules
+# eliza
+/.eliza/.elizadb
+/dist
+
+# continuity daemon
+.continuity/
 /.pnp
 .pnp.*
 .yarn/*

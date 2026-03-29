@@ -9,11 +9,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Environment files
+# Environment files (never bake secrets into image)
+.env
 .env.local
 .env.example
 .env.*.local
-.env.*
 
 # Build output
 .mastra/
@@ -31,8 +31,8 @@ build/
 .DS_Store
 Thumbs.db
 
-# Documentation
-*.md
+# Documentation (not needed in runtime image)
+CHANGELOG.md
 LICENSE
 
 # Docker
@@ -47,5 +47,9 @@ Dockerfile
 # Test files
 coverage/
 .nyc_output/
-*.test.js
+__tests__/
+
+# Dev helpers
+start-agent.bat
+.trunk/
 *.spec.js
